@@ -16,7 +16,7 @@
   <meta name="description" content="111">
   <meta name="author" content="Chen Liang">
   <meta name="keywords" content="">
-  <title>Hello World ~ Code-Chen</title>
+  <title>K8s监控部署方案 ~ Code-Chen</title>
 
   <link rel="stylesheet" href="https://cdn.staticfile.org/font-awesome/5.10.2/css/all.min.css"  >
 <link rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/4.3.1/css/bootstrap.min.css"  >
@@ -122,7 +122,7 @@
               
                 <p class="mt-3">
                   <i class="fas fa-calendar-alt" aria-hidden="true"></i>&nbsp;
-                  2020-01-07 11:57 
+                  2020-01-07 5:17 
                 </p>
               
 
@@ -131,7 +131,7 @@
                   
                   &nbsp;<i class="far fa-chart-bar"></i>
                   <span class="post-count">
-                    75 字
+                    690 字
                   </span>&nbsp;
                 
 
@@ -139,7 +139,7 @@
                   
                   &nbsp;<i class="far fa-clock"></i>
                   <span class="post-count">
-                      1 分钟
+                      3 分钟
                   </span>&nbsp;
                 
 
@@ -172,15 +172,125 @@
       <div class="py-5 z-depth-3" id="board">
         <div class="post-content mx-auto" id="post">
           <div class="markdown-body">
-            <p>Welcome to <a href="https://hexo.io/" target="_blank" rel="noopener">Hexo</a>! This is your very first post. Check <a href="https://hexo.io/docs/" target="_blank" rel="noopener">documentation</a> for more info. If you get any problems when using Hexo, you can find the answer in <a href="https://hexo.io/docs/troubleshooting.html" target="_blank" rel="noopener">troubleshooting</a> or you can ask me on <a href="https://github.com/hexojs/hexo/issues" target="_blank" rel="noopener">GitHub</a>.</p>
-<h2 id="Quick-Start"><a href="#Quick-Start" class="headerlink" title="Quick Start"></a>Quick Start</h2><h3 id="Create-a-new-post"><a href="#Create-a-new-post" class="headerlink" title="Create a new post"></a>Create a new post</h3><pre><code class="bash">$ hexo new &quot;My New Post&quot;</code></pre>
-<p>More info: <a href="https://hexo.io/docs/writing.html" target="_blank" rel="noopener">Writing</a></p>
-<h3 id="Run-server"><a href="#Run-server" class="headerlink" title="Run server"></a>Run server</h3><pre><code class="bash">$ hexo server</code></pre>
-<p>More info: <a href="https://hexo.io/docs/server.html" target="_blank" rel="noopener">Server</a></p>
-<h3 id="Generate-static-files"><a href="#Generate-static-files" class="headerlink" title="Generate static files"></a>Generate static files</h3><pre><code class="bash">$ hexo generate</code></pre>
-<p>More info: <a href="https://hexo.io/docs/generating.html" target="_blank" rel="noopener">Generating</a></p>
-<h3 id="Deploy-to-remote-sites"><a href="#Deploy-to-remote-sites" class="headerlink" title="Deploy to remote sites"></a>Deploy to remote sites</h3><pre><code class="bash">$ hexo deploy</code></pre>
-<p>More info: <a href="https://hexo.io/docs/one-command-deployment.html" target="_blank" rel="noopener">Deployment</a></p>
+            <h2 id="架构"><a href="#架构" class="headerlink" title="架构"></a>架构</h2><p><img src="http://q3q379nk9.bkt.clouddn.com/grafana.png" srcset="/img/loading.gif" alt="grafana"></p>
+<h2 id="部署"><a href="#部署" class="headerlink" title="部署"></a>部署</h2><p><strong>yaml文件地址 👉🏻   <a href="https://161.189.27.8:8090/dqdev/pythogoras/tree/master/k8s-yaml/prometheus" target="_blank" rel="noopener">pythagoras</a></strong></p>
+<h3 id="1-在k8s集群中创建namespace"><a href="#1-在k8s集群中创建namespace" class="headerlink" title="1 在k8s集群中创建namespace"></a>1 在k8s集群中创建namespace</h3><pre><code class="yaml">apiVersion: v1
+kind: Namespace
+metadata: 
+  name: ns-monitor
+  labels:
+    name: ns-monitor
+
+kubectl apply -f namespace.yaml</code></pre>
+<h3 id="2-安装node-exporter"><a href="#2-安装node-exporter" class="headerlink" title="2 安装node-exporter"></a>2 安装node-exporter</h3><p>在kubernetest集群中部署node-exporter，Node-exporter用于采集kubernetes集群中各个节点的物理指标，比如：Memory、CPU等。可以直接在每个物理节点是直接安装，这里我们使用DaemonSet部署到每个节点上，使用 hostNetwork: true 和 hostPID: true 使其获得Node的物理指标信息，配置tolerations使其在master节点也启动一个pod。</p>
+<p>node-exporter.yaml</p>
+<pre><code class="yaml">kind: DaemonSet
+apiVersion: apps/v1beta2
+metadata: 
+  labels:
+    app: node-exporter
+  name: node-exporter
+  namespace: ns-monitor
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      containers:
+        - name: node-exporter
+          image: prom/node-exporter:v0.16.0
+          ports:
+            - containerPort: 9100
+              protocol: TCP
+              name:    http
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+
+---
+kind: Service
+apiVersion: v1
+metadata:
+  labels:
+    app: node-exporter
+  name: node-exporter-service
+  namespace: ns-monitor
+spec:
+  ports:
+    - name:    http
+      port: 9100
+      nodePort: 31672
+      protocol: TCP
+  type: NodePort
+  selector:
+    app: node-exporter</code></pre>
+<pre><code class="shell">kubectl apply -f node-exporter.yaml</code></pre>
+<p><strong>*检查是否执行成功(对应pod及svc)</strong> 👉🏻 **</p>
+<pre><code class="shell">➜  ~ kubectl get pod -n ns-monitor
+NAME                          READY   STATUS    RESTARTS   AGE
+grafana-547699f75-lxljq       1/1     Running   0          3h37m
+node-exporter-75nmc           0/1     Pending   0          20h
+node-exporter-t29kx           1/1     Running   0          20h
+node-exporter-z6s7x           1/1     Running   0          20h
+prometheus-7d7654554d-f5fvf   1/1     Running   0          3h45m
+➜  ~ kubectl get svc -n ns-monitor
+NAME                    TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE
+grafana-service         NodePort   10.1.242.56    &lt;none&gt;        3000:31026/TCP   3h38m
+node-exporter-service   NodePort   10.1.130.7     &lt;none&gt;        9100:31672/TCP   20h
+prometheus-service      NodePort   10.1.133.130   &lt;none&gt;        9090:30753/TCP   3h45m</code></pre>
+<p><img src="http://q3q379nk9.bkt.clouddn.com/image-20200103143320329.png" srcset="/img/loading.gif" alt="image-20200103143320329"></p>
+<h3 id="3-部署Prometheus-pod"><a href="#3-部署Prometheus-pod" class="headerlink" title="3 部署Prometheus pod"></a>3 部署Prometheus pod</h3><p>prometheus.yaml 中包含rbac认证、ConfigMap等</p>
+<pre><code class="shell">kubectl apply -f prometheus.yaml </code></pre>
+<p><em>检查是否执行成功(对应pod及svc)*</em> 👉🏻 </p>
+<pre><code class="shell">➜  ~ kubectl get pod -n ns-monitor
+NAME                          READY   STATUS    RESTARTS   AGE
+grafana-547699f75-lxljq       1/1     Running   0          3h37m
+node-exporter-75nmc           0/1     Pending   0          20h
+node-exporter-t29kx           1/1     Running   0          20h
+node-exporter-z6s7x           1/1     Running   0          20h
+prometheus-7d7654554d-f5fvf   1/1     Running   0          3h45m
+➜  ~ kubectl get svc -n ns-monitor
+NAME                    TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE
+grafana-service         NodePort   10.1.242.56    &lt;none&gt;        3000:31026/TCP   3h38m
+node-exporter-service   NodePort   10.1.130.7     &lt;none&gt;        9100:31672/TCP   20h
+prometheus-service      NodePort   10.1.133.130   &lt;none&gt;        9090:30753/TCP   3h45m</code></pre>
+<p><img src="http://q3q379nk9.bkt.clouddn.com/image-20200103143645494.png" srcset="/img/loading.gif" alt="image-20200103143645494"></p>
+<h3 id="4-在k8s中部署grafana"><a href="#4-在k8s中部署grafana" class="headerlink" title="4 在k8s中部署grafana"></a>4 在k8s中部署grafana</h3><pre><code class="shell">kubectl apply -f grafana.yaml</code></pre>
+<p><strong>检查是否执行成功(对应pod及svc)</strong> 👉🏻 </p>
+<pre><code class="shell">➜  ~ kubectl get pod -n ns-monitor
+NAME                          READY   STATUS    RESTARTS   AGE
+grafana-547699f75-lxljq       1/1     Running   0          3h37m
+node-exporter-75nmc           0/1     Pending   0          20h
+node-exporter-t29kx           1/1     Running   0          20h
+node-exporter-z6s7x           1/1     Running   0          20h
+prometheus-7d7654554d-f5fvf   1/1     Running   0          3h45m
+➜  ~ kubectl get svc -n ns-monitor
+NAME                    TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE
+grafana-service         NodePort   10.1.242.56    &lt;none&gt;        3000:31026/TCP   3h38m
+node-exporter-service   NodePort   10.1.130.7     &lt;none&gt;        9100:31672/TCP   20h
+prometheus-service      NodePort   10.1.133.130   &lt;none&gt;        9090:30753/TCP   3h45m</code></pre>
+<h3 id="5-配置grafana数据源"><a href="#5-配置grafana数据源" class="headerlink" title="5 配置grafana数据源"></a>5 配置grafana数据源</h3><p>把prometheus配置成数据源 ：<a href="http://prometheus-service.ns-monitor:9090" target="_blank" rel="noopener">http://prometheus-service.ns-monitor:9090</a></p>
+<p><img src="http://q3q379nk9.bkt.clouddn.com/image-20200103144416930.png" srcset="/img/loading.gif" alt="image-20200103144416930"></p>
+<h3 id="6-倒入dashboard"><a href="#6-倒入dashboard" class="headerlink" title="6 倒入dashboard"></a>6 倒入dashboard</h3><p>把 kubernetes的Dashboard的模板导入进来，直接把JSON格式内容复制进来。</p>
+<p><img src="uhttp://q3q379nk9.bkt.clouddn.com/image-20200103145516630.png" srcset="/img/loading.gif" alt="image-20200103145516630"></p>
+<h2 id="效果图"><a href="#效果图" class="headerlink" title="效果图"></a>效果图</h2><p><img src="http://q3q379nk9.bkt.clouddn.com/image-20200103145627198.png" srcset="/img/loading.gif" alt="image-20200103145627198"></p>
+<h2 id="Ref"><a href="#Ref" class="headerlink" title="Ref"></a>Ref</h2><ul>
+<li><p><a href="https://jimmysong.io/kubernetes-handbook/practice/using-prometheus-to-monitor-kuberentes-cluster.html" target="_blank" rel="noopener">使用Prometheus监控kubernetes集群</a></p>
+</li>
+<li><p><a href="https://www.jianshu.com/p/ac8853927528" target="_blank" rel="noopener">k8s安装Prometheus+Grafana</a></p>
+</li>
+<li><p><a href="https://github.com/giantswarm/kubernetes-prometheus" target="_blank" rel="noopener">github-kubernetes-promethues</a></p>
+</li>
+<li><p><a href="https://github.com/giantswarm/prometheus" target="_blank" rel="noopener">github-giantswarm-promethues</a></p>
+</li>
+</ul>
 
             <hr>
           </div>
@@ -188,6 +298,27 @@
           <div>
             <p>
             
+              <span>
+                <i class="iconfont icon-inbox"></i>
+                
+                  <a class="hover-with-bg" href="/categories/kubernetes">kubernetes</a>
+                  &nbsp;
+                
+              </span>&nbsp;&nbsp;
+            
+            
+              <span>
+                <i class="iconfont icon-tag"></i>
+                
+                  <a class="hover-with-bg" href="/tags/kubernetes">kubernetes</a>
+                
+                  <a class="hover-with-bg" href="/tags/grafana">grafana</a>
+                
+                  <a class="hover-with-bg" href="/tags/prometheus">prometheus</a>
+                
+                  <a class="hover-with-bg" href="/tags/%E7%9B%91%E6%8E%A7">监控</a>
+                
+              </span>
             
             </p>
             
@@ -341,7 +472,7 @@
     var typed = new Typed('#subtitle', {
       strings: [
         '  ',
-        "Hello World&nbsp;",
+        "K8s监控部署方案&nbsp;",
       ],
       cursorChar: "_",
       typeSpeed: 70,
