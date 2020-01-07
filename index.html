@@ -152,10 +152,7 @@
           
         
         <div class="index-excerpt" >
-          <div class="index-text mb-1">
-## 架构
-![grafana](http://q3q379nk9.bkt.clouddn.com/grafana.png)
-
+          <div class="index-text mb-1">架构
 部署yaml文件地址 👉🏻   pythagoras
 1 在k8s集群中创建namespaceapiVersion: v1
 kind: Namespace
@@ -167,7 +164,11 @@ metadata:
 kubectl apply -f namespace.yaml
 2 安装node-exporter在kubernetest集群中部署node-exporter，Node-exporter用于采集kubernetes集群中各个节点的物理指标，比如：Memory、CPU等。可以直接在每个物理节点是直接安装，这里我们使用DaemonSet部署到每个节点上，使用 hostNetwork: true 和 hostPID: true 使其获得Node的物理指标信息，配置tolerations使其在master节点也启动一个pod。
 node-exporter.yaml
-kind: Daemo</div>
+kind: DaemonSet
+apiVersion: apps/v1beta2
+metadata: 
+  labels:
+    app: no</div>
         </div>
       </a>
 
