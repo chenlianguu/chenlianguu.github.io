@@ -172,7 +172,7 @@
       <div class="py-5 z-depth-3" id="board">
         <div class="post-content mx-auto" id="post">
           <div class="markdown-body">
-            <h2 id="架构"><a href="#架构" class="headerlink" title="架构"></a>架构</h2><p><img src="/.com//grafana.png" srcset="/img/loading.gif" alt="grafana"></p>
+            <h2 id="架构"><a href="#架构" class="headerlink" title="架构"></a>架构</h2><p><img src="https://i.loli.net/2020/01/08/DVBiRAwaNsnYbgL.png" srcset="/img/loading.gif" alt="grafana"></p>
 <h2 id="部署"><a href="#部署" class="headerlink" title="部署"></a>部署</h2><p><strong>yaml文件地址 👉🏻   <a href="https://161.189.27.8:8090/dqdev/pythogoras/tree/master/k8s-yaml/prometheus" target="_blank" rel="noopener">pythagoras</a></strong></p>
 <h3 id="1-在k8s集群中创建namespace"><a href="#1-在k8s集群中创建namespace" class="headerlink" title="1 在k8s集群中创建namespace"></a>1 在k8s集群中创建namespace</h3><pre><code class="yaml">apiVersion: v1
 kind: Namespace
@@ -245,7 +245,7 @@ NAME                    TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)         
 grafana-service         NodePort   10.1.242.56    &lt;none&gt;        3000:31026/TCP   3h38m
 node-exporter-service   NodePort   10.1.130.7     &lt;none&gt;        9100:31672/TCP   20h
 prometheus-service      NodePort   10.1.133.130   &lt;none&gt;        9090:30753/TCP   3h45m</code></pre>
-<p><img src="http://q3q379nk9.bkt.clouddn.com/image-20200103143320329.png" srcset="/img/loading.gif" alt="image-20200103143320329"></p>
+<p><img src="https://i.loli.net/2020/01/08/TP6tIlvFKhgzHuZ.png" srcset="/img/loading.gif" alt="image-20200103143320329"></p>
 <h3 id="3-部署Prometheus-pod"><a href="#3-部署Prometheus-pod" class="headerlink" title="3 部署Prometheus pod"></a>3 部署Prometheus pod</h3><p>prometheus.yaml 中包含rbac认证、ConfigMap等</p>
 <pre><code class="shell">kubectl apply -f prometheus.yaml </code></pre>
 <p><em>检查是否执行成功(对应pod及svc)*</em> 👉🏻 </p>
@@ -261,7 +261,7 @@ NAME                    TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)         
 grafana-service         NodePort   10.1.242.56    &lt;none&gt;        3000:31026/TCP   3h38m
 node-exporter-service   NodePort   10.1.130.7     &lt;none&gt;        9100:31672/TCP   20h
 prometheus-service      NodePort   10.1.133.130   &lt;none&gt;        9090:30753/TCP   3h45m</code></pre>
-<p><img src="http://q3q379nk9.bkt.clouddn.com/image-20200103143645494.png" srcset="/img/loading.gif" alt="image-20200103143645494"></p>
+<p><img src="https://i.loli.net/2020/01/08/fdFs8EN2xhHwCM6.png" srcset="/img/loading.gif" alt="image-20200103143645494"></p>
 <h3 id="4-在k8s中部署grafana"><a href="#4-在k8s中部署grafana" class="headerlink" title="4 在k8s中部署grafana"></a>4 在k8s中部署grafana</h3><pre><code class="shell">kubectl apply -f grafana.yaml</code></pre>
 <p><strong>检查是否执行成功(对应pod及svc)</strong> 👉🏻 </p>
 <pre><code class="shell">➜  ~ kubectl get pod -n ns-monitor
@@ -277,10 +277,10 @@ grafana-service         NodePort   10.1.242.56    &lt;none&gt;        3000:31026
 node-exporter-service   NodePort   10.1.130.7     &lt;none&gt;        9100:31672/TCP   20h
 prometheus-service      NodePort   10.1.133.130   &lt;none&gt;        9090:30753/TCP   3h45m</code></pre>
 <h3 id="5-配置grafana数据源"><a href="#5-配置grafana数据源" class="headerlink" title="5 配置grafana数据源"></a>5 配置grafana数据源</h3><p>把prometheus配置成数据源 ：<a href="http://prometheus-service.ns-monitor:9090" target="_blank" rel="noopener">http://prometheus-service.ns-monitor:9090</a></p>
-<p><img src="http://q3q379nk9.bkt.clouddn.com/image-20200103144416930.png" srcset="/img/loading.gif" alt="image-20200103144416930"></p>
+<p><img src="https://i.loli.net/2020/01/08/fzxnrR5iguDjlHk.png" srcset="/img/loading.gif" alt="image-20200103144416930"></p>
 <h3 id="6-倒入dashboard"><a href="#6-倒入dashboard" class="headerlink" title="6 倒入dashboard"></a>6 倒入dashboard</h3><p>把 kubernetes的Dashboard的模板导入进来，直接把JSON格式内容复制进来。</p>
-<p><img src="uhttp://q3q379nk9.bkt.clouddn.com/image-20200103145516630.png" srcset="/img/loading.gif" alt="image-20200103145516630"></p>
-<h2 id="效果图"><a href="#效果图" class="headerlink" title="效果图"></a>效果图</h2><p><img src="http://q3q379nk9.bkt.clouddn.com/image-20200103145627198.png" srcset="/img/loading.gif" alt="image-20200103145627198"></p>
+<p><img src="https://i.loli.net/2020/01/08/6XkA5hEjN1OWioS.png" srcset="/img/loading.gif" alt="image-20200103145516630"></p>
+<h2 id="效果图"><a href="#效果图" class="headerlink" title="效果图"></a>效果图</h2><p><img src="https://i.loli.net/2020/01/08/bqEolIi8KVSGuHk.png" srcset="/img/loading.gif" alt="image-20200103145627198"></p>
 <h2 id="Ref"><a href="#Ref" class="headerlink" title="Ref"></a>Ref</h2><ul>
 <li><p><a href="https://jimmysong.io/kubernetes-handbook/practice/using-prometheus-to-monitor-kuberentes-cluster.html" target="_blank" rel="noopener">使用Prometheus监控kubernetes集群</a></p>
 </li>
