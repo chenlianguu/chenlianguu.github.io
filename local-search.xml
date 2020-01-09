@@ -4,6 +4,46 @@
   
   
   <entry>
+    <title>Spark run on K8s</title>
+    <link href="/2020/01/09/Spark-run-on-K8s/"/>
+    <url>/2020/01/09/Spark-run-on-K8s/</url>
+    
+    <content type="html"><![CDATA[<h2 id="部署"><a href="#部署" class="headerlink" title="部署"></a>部署</h2><p>首先查看了下spark的官方文档，了解了spark怎么在k8s上面跑的，实际上不需要搭建spark集群，提交作业到k8s的api server即可。看似简单但是还是不知道怎么动手实践。于是youtube上面搜了下相关视频，按照视频很快就实践了一把spark run on k8s，具体步骤如下：</p><ul><li>step 1 到k8-master机器下载二进制spark最新二进制安装包，并解压</li></ul><pre><code class="shell">cd /optwget http://mirrors.tuna.tsinghua.edu.cn/apache/spark/spark-2.4.4/spark-2.4.4-bin-hadoop2.7.tgztar -zxvf http://mirrors.tuna.tsinghua.edu.cn/apache/spark/spark-2.4.4/spark-2.4.4-bin-hadoop2.7.tgz</code></pre><ul><li>step 2 制作spark的docker镜像</li></ul><pre><code class="shell">cd spark-2.4.4-bin-hadoop2.7./bin/docker-image-tool.sh -r chenlianguu -t v2.4.4 build  # 制作spark进行./bin/docker-image-tool.sh -r chenlianguu -t v2.4.4 push  #将spark镜像推送到docker hubdocker images[root@k8s-master opt]# docker imagesREPOSITORY                                                        TAG                 IMAGE ID            CREATED             SIZEchenliang/spark-r                                                 v2.4.4              6479a523e3f7        20 hours ago        759MB</code></pre><ul><li>step 3 提交作业到k8s</li></ul><p>在提交spark的作业的机器上，把api server的proxy打开</p><pre><code class="shell">kubectl proxy</code></pre><pre><code class="shell">./bin/spark-submit \--master k8s://http://127.0.0.1:8001 \--name spark-pi \--deploy-mode cluster \--class org.apache.spark.examples.SparkPi \--conf spark.executor.instances=3 \--conf spark.kubernetes.container.image=chenlianguu/spark-r:v2.4.4 \/opt/spark-2.4.4-bin-hadoop2.7/examples/jars/spark-examples_2.11-2.4.4.jar</code></pre><h2 id="运行说明"><a href="#运行说明" class="headerlink" title="运行说明"></a>运行说明</h2><p><a href="http://52.83.79.244:6875/uploads/images/gallery/2019-12-Dec/k8s-cluster-mode.png" target="_blank" rel="noopener"><img src="http://52.83.79.244:6875/uploads/images/gallery/2019-12-Dec/scaled-840-0/k8s-cluster-mode.png" srcset="/img/loading.gif" alt="k8s-cluster-mode.png"></a><br>集群模式下，通过spark-submit提交程序到k8s集群，具体一下步骤：  </p><ul><li>通过k8s创建spark driver端的pod</li><li>driver端在k8s其他节点创建executor端的pod并保持通信，executor具体执行代码，这里设计到权限问题，假如没有对应的权限创建pods，执行spark会报错，具体见trouble  shooting第二点</li><li>当程序跑完了，executor端pod会终止并清理，driver端的pod会保持complete状态并持久化log信息，最后会由k8s api server进行driver端pod的垃圾回收工作</li></ul><h2 id="trouble-shooting"><a href="#trouble-shooting" class="headerlink" title="trouble shooting"></a>trouble shooting</h2><p>跑spark on k8s的pi example碰到的一些坑及解决方案</p><ul><li>找不到jar问题<br><img src="https://i.loli.net/2020/01/09/xzqUmBIuCdP6HlW.jpg" srcset="/img/loading.gif" alt="1"><br><img src="https://i.loli.net/2020/01/09/U6uIFOrgcjQAkn4.jpg" srcset="/img/loading.gif" alt="2"><br>之前提交的脚本是这样的  </li></ul><pre><code class="shell">./bin/spark-submit \--master k8s://http://127.0.0.1:8001 \--name spark-pi \--deploy-mode cluster \--class org.apache.spark.examples.SparkPi \--conf spark.executor.instances=3 \--conf spark.kubernetes.container.image=chenlianguu/spark-r:v2.4.4 \/opt/spark-2.4.4-bin-hadoop2.7/examples/jars/spark-examples_2.11-2.4.4.jar</code></pre><p>其中jar包制定的地址是local，路径填写应该加上协议local:///opt/spark-2.4.4-bin-hadoop2.7/examples/jars/spark-examples_2.11-2.4.4.jar，加上之后还是报同样的错，google后发现jar包实际上是在jar包在docker镜像里面的地址，因此改为local:///opt/spark/examples/jars/spark-examples_2.11-2.4.4.jar   </p><ul><li>jar问题解决了，又开始报错，报错信息如下<br><img src="https://i.loli.net/2020/01/09/BgsviowCp5EzARG.jpg" srcset="/img/loading.gif" alt="3"><br>第一感觉就是权限问题，网上找到了解决方案，ref：<a href="https://github.com/GoogleCloudPlatform/continuous-deployment-on-kubernetes/issues/113" target="_blank" rel="noopener">解决办法</a>，按照这个思路，在k8s-master节点，输入   <pre><code>kubectl create clusterrolebinding default --clusterrole cluster-admin --serviceaccount=default:default</code></pre></li></ul><p>然后继续执行spark-submit脚本，可以顺利启动driver端，但是有2个executor端还是报错，说是资源不够，有一个executor端执行成功，整个job还是顺利的跑下来了，查看driver端日志。kubectl logs podsname </p><h2 id><a href="#" class="headerlink" title></a><img src="https://i.loli.net/2020/01/09/5bWGKh34DqVQfYU.jpg" srcset="/img/loading.gif" alt="5"></h2><p>参考资料：<br><a href="https://spark.apache.org/docs/latest/running-on-kubernetes.html" target="_blank" rel="noopener">spark官方doc</a><br><a href="https://www.youtube.com/watch?v=l7UoE97Z24I&list=LL-3gJZTnF4DbSyb7KID7P7g&index=2&t=0s" target="_blank" rel="noopener">youtube动手视频</a></p>]]></content>
+    
+    
+    
+  </entry>
+  
+  
+  
+  <entry>
+    <title>Kubernetes部署</title>
+    <link href="/2020/01/09/Kubernetes%E9%83%A8%E7%BD%B2/"/>
+    <url>/2020/01/09/Kubernetes%E9%83%A8%E7%BD%B2/</url>
+    
+    <content type="html"><![CDATA[<p>k8s的搭建主要有三种方式：kubeadmin安装、docker安装及二进制安装，其中二进制安装方式最为复杂需要部署人员了解网络https，ca证书等方面的知识，kubeadmin安装方式大大简化了部署操作，刚入门建议尝试kubeadmin方式安装。docker安装我并不觉得合适，本身k8s作为容器编排系统部署在docker里面，网络及相关端口配置较为复杂，为了避免埋下太多的坑，本人没有尝试这种方式进行安装。</p><p>具体安装部署我就不写在这里了，分享一套自己看的k8s入门视频，很简短能够快速了解k8s，当时k8s学习曲线是比较陡峭的。</p><p>👉🏻<a href="https://pan.baidu.com/s/1ieZmpZdsae73PacD9FZDYA" target="_blank" rel="noopener">百度云盘</a> 密码:amlo</p><p>👉🏻<a href="https://alevelhome-my.sharepoint.com/:w:/p/chenliang/EbQBPVmKj7VBpKZGYo02h4YBGbutlFV-28jq86GsR76HzQ?e=SgE4o5" target="_blank" rel="noopener">安装部署文档</a>  </p><p>按照此文档部署基本没啥坑，注意的是部分镜像在国外服务器，需要替换成文档作者国内的镜像即可。</p><hr><p>最近看到新的工具rancher，企业级管理运维kubernetes集群的好工具的。后续继续更新</p>]]></content>
+    
+    
+    <categories>
+      
+      <category>kubernetes</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>kubernetes</tag>
+      
+      <tag>部署</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>Docker部署伪分布式大数据环境</title>
     <link href="/2020/01/09/Docker%E9%83%A8%E7%BD%B2%E4%BC%AA%E5%88%86%E5%B8%83%E5%BC%8F%E5%A4%A7%E6%95%B0%E6%8D%AE%E7%8E%AF%E5%A2%83/"/>
     <url>/2020/01/09/Docker%E9%83%A8%E7%BD%B2%E4%BC%AA%E5%88%86%E5%B8%83%E5%BC%8F%E5%A4%A7%E6%95%B0%E6%8D%AE%E7%8E%AF%E5%A2%83/</url>
@@ -25,6 +65,8 @@
       <tag>环境</tag>
       
       <tag>大数据</tag>
+      
+      <tag>部署</tag>
       
     </tags>
     
@@ -55,6 +97,8 @@
       
       <tag>网盘</tag>
       
+      <tag>部署</tag>
+      
     </tags>
     
   </entry>
@@ -83,6 +127,8 @@
       <tag>证书</tag>
       
       <tag>harbor</tag>
+      
+      <tag>部署</tag>
       
     </tags>
     
@@ -114,6 +160,8 @@
       <tag>prometheus</tag>
       
       <tag>监控</tag>
+      
+      <tag>部署</tag>
       
     </tags>
     

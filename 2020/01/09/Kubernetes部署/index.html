@@ -18,7 +18,7 @@
   <meta name="description" content="111">
   <meta name="author" content="Chen Liang">
   <meta name="keywords" content="">
-  <title>Docker部署Nextcloud ~ Code-Chen</title>
+  <title>Kubernetes部署 ~ Code-Chen</title>
 
   <link rel="stylesheet" href="https://cdn.staticfile.org/font-awesome/5.10.2/css/all.min.css"  >
 <link rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/4.3.1/css/bootstrap.min.css"  >
@@ -124,7 +124,7 @@
               
                 <p class="mt-3">
                   <i class="fas fa-calendar-alt" aria-hidden="true"></i>&nbsp;
-                  2020-01-09 11:54 
+                  2020-01-09 12:32 
                 </p>
               
 
@@ -133,7 +133,7 @@
                   
                   &nbsp;<i class="far fa-chart-bar"></i>
                   <span class="post-count">
-                    1.1k 字
+                    280 字
                   </span>&nbsp;
                 
 
@@ -141,7 +141,7 @@
                   
                   &nbsp;<i class="far fa-clock"></i>
                   <span class="post-count">
-                      5 分钟
+                      1 分钟
                   </span>&nbsp;
                 
 
@@ -174,125 +174,13 @@
       <div class="py-5 z-depth-3" id="board">
         <div class="post-content mx-auto" id="post">
           <div class="markdown-body">
-            <h2 id="准备工作"><a href="#准备工作" class="headerlink" title="准备工作"></a>准备工作</h2><h3 id="docker的安装及配置"><a href="#docker的安装及配置" class="headerlink" title="docker的安装及配置"></a>docker的安装及配置</h3><pre><code class="shell"># 通过yum安装
-yum install -y docker-ce
-# 启动docker并设置开机启动
-systemctl start docker
-systemctl enable docker
-# aws ec2 linux2另外一种安装方式
-sudo amazon-linux-extras install docker
-sudo service docker start</code></pre>
-<p>由于docker镜像源默认是在国外，拉取镜像速度非常慢，修改daemon配置文件/etc/docker/daemon.json来使用加速器</p>
-<pre><code class="shell">mkdir -p /etc/docker
-touch /etc/docker/daemon.json
-vim /etc/docker/daemon.json
-{
-  &quot;registry-mirrors&quot;: [&quot;https://b3sst9pc.mirror.aliyuncs.com&quot;]
-}
-systemctl daemon-reload
-systemctl restart docker</code></pre>
-<h3 id="docker-compose安装"><a href="#docker-compose安装" class="headerlink" title="docker-compose安装"></a>docker-compose安装</h3><p>Docker Compose是 docker 提供的一个命令行工具，用来定义和运行由多个容器组成的应用。使用 compose，我们可以通过 YAML 文件声明式的定义应用程序的各个服务，并由单个命令完成应用的创建和启动。</p>
-<ul>
-<li><p>docker-compose命令安装</p>
-<pre><code class="shell"># 安装pip
-yum -y install epel-release
-yum -y install python-pip
-# 确认版本
-pip --version
-# 更新pip
-pip install --upgrade pip
-# 安装docker-compose
-pip install docker-compose 
-# 查看版本
-docker-compose version</code></pre>
-</li>
-</ul>
-<h2 id="nextcloud的部署"><a href="#nextcloud的部署" class="headerlink" title="nextcloud的部署"></a>nextcloud的部署</h2><p>nextcloud通过docker-compose命令进行构建，创建 docker-compose.yml文件</p>
-<pre><code class="shell"># 创建docker-compose.yml文件
-touch docker-compose.yml
-# 粘贴以下内容
-version: &#39;2&#39;
-services:
-  db:
-    image: mariadb
-    restart: always
-    volumes:
-      - /data/mariadb:/var/lib/mysql
-    environment:
-      - MYSQL_ROOT_PASSWORD=root
-      - MYSQL_PASSWORD=nextcloud
-      - MYSQL_DATABASE=nextcloud
-      - MYSQL_USER=nextcloud
-
-  app:
-    image: nextcloud
-    restart: always
-    ports:
-      - 8091:80
-    links:
-      - db
-    volumes:
-      - /data/nextcloud/data:/var/www/html/data    
-      - /data/nextcloud/themes:/var/www/html/themes
-      - /data/nextcloud/apps:/var/www/html/custom_apps</code></pre>
-<p>docker-compose.yml文件说明</p>
-<p>通过启动两个service服务mariadb及nextcloud服务，并通过link连接到一起，其中将/var/www/html/data、/var/www/html/themes、/var/www/html/custom_apps映射到linux服务器指定目录实现数据持久化，这样下次docker重启的时候数据不会发生丢失。</p>
-<p>nextcloud实现预览编辑office文件需要插件onlyoffice支持，通过docker创建onlyoffice服务器，并启动nextcloud配置onlyoffice</p>
-<pre><code class="shell">docker run -it -d -p 8061:80 onlyoffice/documentserver  -v /data/onlyoffice/logs:/var/log/onlyoffice /data/onlyoffice/data:/var/www/onlyoffice/Data /data/onlyoffice/lib:/var/lib/onlyoffice /data/onlyoffice/db:/var/lib/postgresql</code></pre>
-<p>启动nextcloud、停止nextcloud、查看nextcloud启动状态</p>
-<pre><code class="shell"># 启动nextcloud
-docker-compose up -d
-# 查看nextcloud状态
-docker-compose ps
-# 停止nextcloud
-docker-compose stop</code></pre>
-<h2 id="nextcloud的数据迁移"><a href="#nextcloud的数据迁移" class="headerlink" title="nextcloud的数据迁移"></a>nextcloud的数据迁移</h2><p>当需要nextcloud迁移到另外一台服务的时候，需要将nextcloud持久化的数据通过scp或者其他方式复制到另外一台机器，将原来的机器mariadb的nextcloud数据库进行导出，在新的机器上面导入数据库数据。复制YAML文件到新的机器，通过docker-compose进行启动，进入容器内部修改持久化数据的权限及修改nextcloud配置文件，最后重启容器。</p>
-<pre><code class="shell"># 复制持久化数据到新的机器上面
-scp -R /data/nextcloud root@192.168.12.1:/data
-# 导出原来机器的上面的mariadb数据
-docker exec -it  nextcloud_db_1【docker容器名称/ID】 mysqldump -uroot -proot【数据库密码】 nextcloud【数据库名称】 &gt; /opt/sql_bak/nextcloud.sql【导出表格路径】
-# 将sql文件复制到新的机器上面
-scp  /opt/sql_bak/nextcloud.sql root@192.168.12.1:/opt/sql_bak
-# 在新的机器上面执行该sql文件(需要先启动docker容器)
-docker cp /opt/sql_bak/nextcloud.sql 【容器名】:/root/
-docker exec -it 【容器名/ID】sh
-mysql -uroot -p nextcloud【数据库名】 &lt; /root/nextcloud.sql
-# 通过docker-compose启动镜像，修改权限
- docker exec -it -u root nextcloud_app_1【容器id/容器名】 /bin/bash
- root@bafc02ce112a:/var/www/html# chown -R www-data:root /var/www/html/
- root@bafc02ce112a:exit
-# 修改nextcloud配置文件
-vim /data/nextcloud/config/config.php
-# 修改ip
-&#39;trusted_domains&#39; =&gt;
-  array (
-    0 =&gt; &#39;161.189.27.8:8091&#39;,
-  ),
-  &#39;datadirectory&#39; =&gt; &#39;/var/www/html/data&#39;,
-  &#39;dbtype&#39; =&gt; &#39;mysql&#39;,
-  &#39;version&#39; =&gt; &#39;16.0.4.1&#39;,
-  &#39;overwrite.cli.url&#39; =&gt; &#39;http://161.189.27.8:8091&#39;,
-# 重启
-docker-compose restart</code></pre>
-<h2 id="trouble-shooting"><a href="#trouble-shooting" class="headerlink" title="trouble shooting"></a>trouble shooting</h2><ul>
-<li><p>安装docker-compose命令执行pip install docker-compose的时候报以下错误</p>
-<pre><code>ERROR: Cannot uninstall &#39;requests&#39;. It is a distutils installed project and thus we cannot accurately determine which files belong to it which would lead to only a partial uninstall.</code></pre><p>解决版本，强制安装requests包</p>
-<pre><code class="shell"> pip install --ignore-installed requests</code></pre>
-<p>再重新执行</p>
-<pre><code class="shell">pip install docker-compose</code></pre>
-</li>
-<li><p>docker-compose报错：No module named ssl_match_hostname</p>
-<pre><code>File &quot;/usr/local/lib/python2.7/dist-packages/docker/transport/ssladapter.py&quot;, line 23, in &lt;module&gt;
-from backports.ssl_match_hostname import match_hostname
-ImportError: No module named ssl_match_hostname</code></pre><p>原因：</p>
-<p><strong>/usr/local/lib/python2.7/distpackages/docker/transport/ssladapter.py **<br>在包路径下找不到 **backports包里的ssl_match_hostname</strong>模块</p>
-<p>解决办法</p>
-<pre><code class="shell">#进入backports模块路径
-cd /usr/lib/python2.7/site-packages
-#复制整个包到transport包路径下
-cp -r backports /usr/lib/python2.7/site-packages/docker/transport</code></pre>
-</li>
-</ul>
+            <p>k8s的搭建主要有三种方式：kubeadmin安装、docker安装及二进制安装，其中二进制安装方式最为复杂需要部署人员了解网络https，ca证书等方面的知识，kubeadmin安装方式大大简化了部署操作，刚入门建议尝试kubeadmin方式安装。docker安装我并不觉得合适，本身k8s作为容器编排系统部署在docker里面，网络及相关端口配置较为复杂，为了避免埋下太多的坑，本人没有尝试这种方式进行安装。</p>
+<p>具体安装部署我就不写在这里了，分享一套自己看的k8s入门视频，很简短能够快速了解k8s，当时k8s学习曲线是比较陡峭的。</p>
+<p>👉🏻<a href="https://pan.baidu.com/s/1ieZmpZdsae73PacD9FZDYA" target="_blank" rel="noopener">百度云盘</a> 密码:amlo</p>
+<p>👉🏻<a href="https://alevelhome-my.sharepoint.com/:w:/p/chenliang/EbQBPVmKj7VBpKZGYo02h4YBGbutlFV-28jq86GsR76HzQ?e=SgE4o5" target="_blank" rel="noopener">安装部署文档</a>  </p>
+<p>按照此文档部署基本没啥坑，注意的是部分镜像在国外服务器，需要替换成文档作者国内的镜像即可。</p>
+<hr>
+<p>最近看到新的工具rancher，企业级管理运维kubernetes集群的好工具的。后续继续更新</p>
 
             <hr>
           </div>
@@ -303,7 +191,7 @@ cp -r backports /usr/lib/python2.7/site-packages/docker/transport</code></pre>
               <span>
                 <i class="iconfont icon-inbox"></i>
                 
-                  <a class="hover-with-bg" href="/categories/%E8%BF%90%E7%BB%B4">运维</a>
+                  <a class="hover-with-bg" href="/categories/kubernetes">kubernetes</a>
                   &nbsp;
                 
               </span>&nbsp;&nbsp;
@@ -312,11 +200,7 @@ cp -r backports /usr/lib/python2.7/site-packages/docker/transport</code></pre>
               <span>
                 <i class="iconfont icon-tag"></i>
                 
-                  <a class="hover-with-bg" href="/tags/docker">docker</a>
-                
-                  <a class="hover-with-bg" href="/tags/nextcloud">nextcloud</a>
-                
-                  <a class="hover-with-bg" href="/tags/%E7%BD%91%E7%9B%98">网盘</a>
+                  <a class="hover-with-bg" href="/tags/kubernetes">kubernetes</a>
                 
                   <a class="hover-with-bg" href="/tags/%E9%83%A8%E7%BD%B2">部署</a>
                 
@@ -505,7 +389,7 @@ cp -r backports /usr/lib/python2.7/site-packages/docker/transport</code></pre>
     var typed = new Typed('#subtitle', {
       strings: [
         '  ',
-        "Docker部署Nextcloud&nbsp;",
+        "Kubernetes部署&nbsp;",
       ],
       cursorChar: "_",
       typeSpeed: 70,
