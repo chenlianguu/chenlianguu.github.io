@@ -18,7 +18,7 @@
   <meta name="description" content="111">
   <meta name="author" content="Chen Liang">
   <meta name="keywords" content="">
-  <title>Gitlab开启Https ~ Code-Chen</title>
+  <title>Docker部署Nextcloud ~ Code-Chen</title>
 
   <link rel="stylesheet" href="https://cdn.staticfile.org/font-awesome/5.10.2/css/all.min.css"  >
 <link rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/4.3.1/css/bootstrap.min.css"  >
@@ -124,7 +124,7 @@
               
                 <p class="mt-3">
                   <i class="fas fa-calendar-alt" aria-hidden="true"></i>&nbsp;
-                  2020-01-07 5:11 
+                  2020-01-09 11:54 
                 </p>
               
 
@@ -133,7 +133,7 @@
                   
                   &nbsp;<i class="far fa-chart-bar"></i>
                   <span class="post-count">
-                    374 字
+                    1.1k 字
                   </span>&nbsp;
                 
 
@@ -141,7 +141,7 @@
                   
                   &nbsp;<i class="far fa-clock"></i>
                   <span class="post-count">
-                      1 分钟
+                      5 分钟
                   </span>&nbsp;
                 
 
@@ -174,39 +174,125 @@
       <div class="py-5 z-depth-3" id="board">
         <div class="post-content mx-auto" id="post">
           <div class="markdown-body">
-            <h2 id="Gitlab开启Https"><a href="#Gitlab开启Https" class="headerlink" title="Gitlab开启Https"></a>Gitlab开启Https</h2><h3 id="建立认证目录"><a href="#建立认证目录" class="headerlink" title="建立认证目录"></a>建立认证目录</h3><pre><code class="shell">mkdir -p /etc/gitlab/ssl
-chmod 700 /etc/gitlab/ssl</code></pre>
-<h3 id="建立证书"><a href="#建立证书" class="headerlink" title="建立证书"></a>建立证书</h3><pre><code class="shell"># step 1 创建private key （记住输入的密码（Pass phrase））
-openssl genrsa -des3 -out /etc/gitlab/ssl/server.key 2048
+            <h2 id="准备工作"><a href="#准备工作" class="headerlink" title="准备工作"></a>准备工作</h2><h3 id="docker的安装及配置"><a href="#docker的安装及配置" class="headerlink" title="docker的安装及配置"></a>docker的安装及配置</h3><pre><code class="shell"># 通过yum安装
+yum install -y docker-ce
+# 启动docker并设置开机启动
+systemctl start docker
+systemctl enable docker
+# aws ec2 linux2另外一种安装方式
+sudo amazon-linux-extras install docker
+sudo service docker start</code></pre>
+<p>由于docker镜像源默认是在国外，拉取镜像速度非常慢，修改daemon配置文件/etc/docker/daemon.json来使用加速器</p>
+<pre><code class="shell">mkdir -p /etc/docker
+touch /etc/docker/daemon.json
+vim /etc/docker/daemon.json
+{
+  &quot;registry-mirrors&quot;: [&quot;https://b3sst9pc.mirror.aliyuncs.com&quot;]
+}
+systemctl daemon-reload
+systemctl restart docker</code></pre>
+<h3 id="docker-compose安装"><a href="#docker-compose安装" class="headerlink" title="docker-compose安装"></a>docker-compose安装</h3><p>Docker Compose是 docker 提供的一个命令行工具，用来定义和运行由多个容器组成的应用。使用 compose，我们可以通过 YAML 文件声明式的定义应用程序的各个服务，并由单个命令完成应用的创建和启动。</p>
+<ul>
+<li><p>docker-compose命令安装</p>
+<pre><code class="shell"># 安装pip
+yum -y install epel-release
+yum -y install python-pip
+# 确认版本
+pip --version
+# 更新pip
+pip install --upgrade pip
+# 安装docker-compose
+pip install docker-compose 
+# 查看版本
+docker-compose version</code></pre>
+</li>
+</ul>
+<h2 id="nextcloud的部署"><a href="#nextcloud的部署" class="headerlink" title="nextcloud的部署"></a>nextcloud的部署</h2><p>nextcloud通过docker-compose命令进行构建，创建 docker-compose.yml文件</p>
+<pre><code class="shell"># 创建docker-compose.yml文件
+touch docker-compose.yml
+# 粘贴以下内容
+version: &#39;2&#39;
+services:
+  db:
+    image: mariadb
+    restart: always
+    volumes:
+      - /data/mariadb:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_PASSWORD=nextcloud
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
 
-# step 2 生成 Certificate Request
-openssl req -new -key /etc/gitlab/ssl/gitlab.domain.com.key -out /etc/gitlab/ssl/server.csr</code></pre>
-<blockquote>
-<p> Enter Country Name CN<br> Enter State or Province Full Name HB<br> Enter City Name WuHan<br> Enter Organization Name<br> Enter Company Name EV-IV<br> Enter Organizational Unit Name<br> Enter server hostname i.e. URL gitlab.domain.com<br> Enter Admin Email Address<br> Skip Challenge Password (Hit Enter)<br> Skip Optional Company Name (Hit Enter)</p>
-</blockquote>
-<pre><code class="shell">#在加载SSL支持的Nginx并使用上述私钥时要除去刚才设置的口令： 
-#step3 备份csr文件及去除命令，直接覆盖了server.key了
-openssl rsa -inserver.key.org -out server.key
-#step 4最后标记证书使用上述私钥和CSR：（把csr标记后转换成了crt nginx要用key和crt文件）
-openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt</code></pre>
-<h3 id="修改gitlab配置"><a href="#修改gitlab配置" class="headerlink" title="修改gitlab配置"></a>修改gitlab配置</h3><pre><code class="shell">vim /etc/gitlab/gitlab.rb
-
-external_url &#39;https://161.189.27.8:8090/&#39;
-
-nginx[&#39;redirect_http_to_https&#39;]= true
-nginx[&#39;ssl_client_certificate&#39;] = &quot;/etc/gitlab/ssl/server.crt&quot;
-nginx[&#39;ssl_certificate&#39;]= &quot;/etc/gitlab/ssl/server.crt&quot;
-nginx[&#39;ssl_certificate_key&#39;]= &quot;/etc/gitlab/ssl/server.key&quot;</code></pre>
-<h3 id="重启gitlab"><a href="#重启gitlab" class="headerlink" title="重启gitlab"></a>重启gitlab</h3><pre><code class="shell">gitlab-ctl reconfigure
-gitlab-ctl restart</code></pre>
-<p>最后通过访问https地址进行访问测试</p>
-<h3 id="相关问题"><a href="#相关问题" class="headerlink" title="相关问题"></a>相关问题</h3><p>Q1 由于ssl证书为自签证书 git clone报错</p>
-<pre><code class="shell">git clone https://161.189.27.8:8090/dqdev/pythogoras.git
-Cloning into &#39;pythogoras&#39;...
-fatal: unable to access &#39;https://161.189.27.8:8090/dqdev/pythogoras.git/&#39;: SSL certificate problem: self signed certificate</code></pre>
-<p>关闭git ssl验证</p>
-<pre><code class="bash">git config --global http.sslVerify false 关闭
-git config --global http.sslVerify true  开启</code></pre>
+  app:
+    image: nextcloud
+    restart: always
+    ports:
+      - 8091:80
+    links:
+      - db
+    volumes:
+      - /data/nextcloud/data:/var/www/html/data    
+      - /data/nextcloud/themes:/var/www/html/themes
+      - /data/nextcloud/apps:/var/www/html/custom_apps</code></pre>
+<p>docker-compose.yml文件说明</p>
+<p>通过启动两个service服务mariadb及nextcloud服务，并通过link连接到一起，其中将/var/www/html/data、/var/www/html/themes、/var/www/html/custom_apps映射到linux服务器指定目录实现数据持久化，这样下次docker重启的时候数据不会发生丢失。</p>
+<p>nextcloud实现预览编辑office文件需要插件onlyoffice支持，通过docker创建onlyoffice服务器，并启动nextcloud配置onlyoffice</p>
+<pre><code class="shell">docker run -it -d -p 8061:80 onlyoffice/documentserver  -v /data/onlyoffice/logs:/var/log/onlyoffice /data/onlyoffice/data:/var/www/onlyoffice/Data /data/onlyoffice/lib:/var/lib/onlyoffice /data/onlyoffice/db:/var/lib/postgresql</code></pre>
+<p>启动nextcloud、停止nextcloud、查看nextcloud启动状态</p>
+<pre><code class="shell"># 启动nextcloud
+docker-compose up -d
+# 查看nextcloud状态
+docker-compose ps
+# 停止nextcloud
+docker-compose stop</code></pre>
+<h2 id="nextcloud的数据迁移"><a href="#nextcloud的数据迁移" class="headerlink" title="nextcloud的数据迁移"></a>nextcloud的数据迁移</h2><p>当需要nextcloud迁移到另外一台服务的时候，需要将nextcloud持久化的数据通过scp或者其他方式复制到另外一台机器，将原来的机器mariadb的nextcloud数据库进行导出，在新的机器上面导入数据库数据。复制YAML文件到新的机器，通过docker-compose进行启动，进入容器内部修改持久化数据的权限及修改nextcloud配置文件，最后重启容器。</p>
+<pre><code class="shell"># 复制持久化数据到新的机器上面
+scp -R /data/nextcloud root@192.168.12.1:/data
+# 导出原来机器的上面的mariadb数据
+docker exec -it  nextcloud_db_1【docker容器名称/ID】 mysqldump -uroot -proot【数据库密码】 nextcloud【数据库名称】 &gt; /opt/sql_bak/nextcloud.sql【导出表格路径】
+# 将sql文件复制到新的机器上面
+scp  /opt/sql_bak/nextcloud.sql root@192.168.12.1:/opt/sql_bak
+# 在新的机器上面执行该sql文件(需要先启动docker容器)
+docker cp /opt/sql_bak/nextcloud.sql 【容器名】:/root/
+docker exec -it 【容器名/ID】sh
+mysql -uroot -p nextcloud【数据库名】 &lt; /root/nextcloud.sql
+# 通过docker-compose启动镜像，修改权限
+ docker exec -it -u root nextcloud_app_1【容器id/容器名】 /bin/bash
+ root@bafc02ce112a:/var/www/html# chown -R www-data:root /var/www/html/
+ root@bafc02ce112a:exit
+# 修改nextcloud配置文件
+vim /data/nextcloud/config/config.php
+# 修改ip
+&#39;trusted_domains&#39; =&gt;
+  array (
+    0 =&gt; &#39;161.189.27.8:8091&#39;,
+  ),
+  &#39;datadirectory&#39; =&gt; &#39;/var/www/html/data&#39;,
+  &#39;dbtype&#39; =&gt; &#39;mysql&#39;,
+  &#39;version&#39; =&gt; &#39;16.0.4.1&#39;,
+  &#39;overwrite.cli.url&#39; =&gt; &#39;http://161.189.27.8:8091&#39;,
+# 重启
+docker-compose restart</code></pre>
+<h2 id="trouble-shooting"><a href="#trouble-shooting" class="headerlink" title="trouble shooting"></a>trouble shooting</h2><ul>
+<li><p>安装docker-compose命令执行pip install docker-compose的时候报以下错误</p>
+<pre><code>ERROR: Cannot uninstall &#39;requests&#39;. It is a distutils installed project and thus we cannot accurately determine which files belong to it which would lead to only a partial uninstall.</code></pre><p>解决版本，强制安装requests包</p>
+<pre><code class="shell"> pip install --ignore-installed requests</code></pre>
+<p>再重新执行</p>
+<pre><code class="shell">pip install docker-compose</code></pre>
+</li>
+<li><p>docker-compose报错：No module named ssl_match_hostname</p>
+<pre><code>File &quot;/usr/local/lib/python2.7/dist-packages/docker/transport/ssladapter.py&quot;, line 23, in &lt;module&gt;
+from backports.ssl_match_hostname import match_hostname
+ImportError: No module named ssl_match_hostname</code></pre><p>原因：</p>
+<p><strong>/usr/local/lib/python2.7/distpackages/docker/transport/ssladapter.py **<br>在包路径下找不到 **backports包里的ssl_match_hostname</strong>模块</p>
+<p>解决办法</p>
+<pre><code class="shell">#进入backports模块路径
+cd /usr/lib/python2.7/site-packages
+#复制整个包到transport包路径下
+cp -r backports /usr/lib/python2.7/site-packages/docker/transport</code></pre>
+</li>
+</ul>
 
             <hr>
           </div>
@@ -226,13 +312,11 @@ git config --global http.sslVerify true  开启</code></pre>
               <span>
                 <i class="iconfont icon-tag"></i>
                 
-                  <a class="hover-with-bg" href="/tags/gitlab">gitlab</a>
+                  <a class="hover-with-bg" href="/tags/docker">docker</a>
                 
-                  <a class="hover-with-bg" href="/tags/ssl">ssl</a>
+                  <a class="hover-with-bg" href="/tags/nextcloud">nextcloud</a>
                 
-                  <a class="hover-with-bg" href="/tags/https">https</a>
-                
-                  <a class="hover-with-bg" href="/tags/%E8%AF%81%E4%B9%A6">证书</a>
+                  <a class="hover-with-bg" href="/tags/%E7%BD%91%E7%9B%98">网盘</a>
                 
               </span>
             
@@ -419,7 +503,7 @@ git config --global http.sslVerify true  开启</code></pre>
     var typed = new Typed('#subtitle', {
       strings: [
         '  ',
-        "Gitlab开启Https&nbsp;",
+        "Docker部署Nextcloud&nbsp;",
       ],
       cursorChar: "_",
       typeSpeed: 70,

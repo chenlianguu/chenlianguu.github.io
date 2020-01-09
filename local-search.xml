@@ -4,6 +4,35 @@
   
   
   <entry>
+    <title>Docker部署Nextcloud</title>
+    <link href="/2020/01/09/Docker%E9%83%A8%E7%BD%B2Nextcloud/"/>
+    <url>/2020/01/09/Docker%E9%83%A8%E7%BD%B2Nextcloud/</url>
+    
+    <content type="html"><![CDATA[<h2 id="准备工作"><a href="#准备工作" class="headerlink" title="准备工作"></a>准备工作</h2><h3 id="docker的安装及配置"><a href="#docker的安装及配置" class="headerlink" title="docker的安装及配置"></a>docker的安装及配置</h3><pre><code class="shell"># 通过yum安装yum install -y docker-ce# 启动docker并设置开机启动systemctl start dockersystemctl enable docker# aws ec2 linux2另外一种安装方式sudo amazon-linux-extras install dockersudo service docker start</code></pre><p>由于docker镜像源默认是在国外，拉取镜像速度非常慢，修改daemon配置文件/etc/docker/daemon.json来使用加速器</p><pre><code class="shell">mkdir -p /etc/dockertouch /etc/docker/daemon.jsonvim /etc/docker/daemon.json{  &quot;registry-mirrors&quot;: [&quot;https://b3sst9pc.mirror.aliyuncs.com&quot;]}systemctl daemon-reloadsystemctl restart docker</code></pre><h3 id="docker-compose安装"><a href="#docker-compose安装" class="headerlink" title="docker-compose安装"></a>docker-compose安装</h3><p>Docker Compose是 docker 提供的一个命令行工具，用来定义和运行由多个容器组成的应用。使用 compose，我们可以通过 YAML 文件声明式的定义应用程序的各个服务，并由单个命令完成应用的创建和启动。</p><ul><li><p>docker-compose命令安装</p><pre><code class="shell"># 安装pipyum -y install epel-releaseyum -y install python-pip# 确认版本pip --version# 更新pippip install --upgrade pip# 安装docker-composepip install docker-compose # 查看版本docker-compose version</code></pre></li></ul><h2 id="nextcloud的部署"><a href="#nextcloud的部署" class="headerlink" title="nextcloud的部署"></a>nextcloud的部署</h2><p>nextcloud通过docker-compose命令进行构建，创建 docker-compose.yml文件</p><pre><code class="shell"># 创建docker-compose.yml文件touch docker-compose.yml# 粘贴以下内容version: &#39;2&#39;services:  db:    image: mariadb    restart: always    volumes:      - /data/mariadb:/var/lib/mysql    environment:      - MYSQL_ROOT_PASSWORD=root      - MYSQL_PASSWORD=nextcloud      - MYSQL_DATABASE=nextcloud      - MYSQL_USER=nextcloud  app:    image: nextcloud    restart: always    ports:      - 8091:80    links:      - db    volumes:      - /data/nextcloud/data:/var/www/html/data          - /data/nextcloud/themes:/var/www/html/themes      - /data/nextcloud/apps:/var/www/html/custom_apps</code></pre><p>docker-compose.yml文件说明</p><p>通过启动两个service服务mariadb及nextcloud服务，并通过link连接到一起，其中将/var/www/html/data、/var/www/html/themes、/var/www/html/custom_apps映射到linux服务器指定目录实现数据持久化，这样下次docker重启的时候数据不会发生丢失。</p><p>nextcloud实现预览编辑office文件需要插件onlyoffice支持，通过docker创建onlyoffice服务器，并启动nextcloud配置onlyoffice</p><pre><code class="shell">docker run -it -d -p 8061:80 onlyoffice/documentserver  -v /data/onlyoffice/logs:/var/log/onlyoffice /data/onlyoffice/data:/var/www/onlyoffice/Data /data/onlyoffice/lib:/var/lib/onlyoffice /data/onlyoffice/db:/var/lib/postgresql</code></pre><p>启动nextcloud、停止nextcloud、查看nextcloud启动状态</p><pre><code class="shell"># 启动nextclouddocker-compose up -d# 查看nextcloud状态docker-compose ps# 停止nextclouddocker-compose stop</code></pre><h2 id="nextcloud的数据迁移"><a href="#nextcloud的数据迁移" class="headerlink" title="nextcloud的数据迁移"></a>nextcloud的数据迁移</h2><p>当需要nextcloud迁移到另外一台服务的时候，需要将nextcloud持久化的数据通过scp或者其他方式复制到另外一台机器，将原来的机器mariadb的nextcloud数据库进行导出，在新的机器上面导入数据库数据。复制YAML文件到新的机器，通过docker-compose进行启动，进入容器内部修改持久化数据的权限及修改nextcloud配置文件，最后重启容器。</p><pre><code class="shell"># 复制持久化数据到新的机器上面scp -R /data/nextcloud root@192.168.12.1:/data# 导出原来机器的上面的mariadb数据docker exec -it  nextcloud_db_1【docker容器名称/ID】 mysqldump -uroot -proot【数据库密码】 nextcloud【数据库名称】 &gt; /opt/sql_bak/nextcloud.sql【导出表格路径】# 将sql文件复制到新的机器上面scp  /opt/sql_bak/nextcloud.sql root@192.168.12.1:/opt/sql_bak# 在新的机器上面执行该sql文件(需要先启动docker容器)docker cp /opt/sql_bak/nextcloud.sql 【容器名】:/root/docker exec -it 【容器名/ID】shmysql -uroot -p nextcloud【数据库名】 &lt; /root/nextcloud.sql# 通过docker-compose启动镜像，修改权限 docker exec -it -u root nextcloud_app_1【容器id/容器名】 /bin/bash root@bafc02ce112a:/var/www/html# chown -R www-data:root /var/www/html/ root@bafc02ce112a:exit# 修改nextcloud配置文件vim /data/nextcloud/config/config.php# 修改ip&#39;trusted_domains&#39; =&gt;  array (    0 =&gt; &#39;161.189.27.8:8091&#39;,  ),  &#39;datadirectory&#39; =&gt; &#39;/var/www/html/data&#39;,  &#39;dbtype&#39; =&gt; &#39;mysql&#39;,  &#39;version&#39; =&gt; &#39;16.0.4.1&#39;,  &#39;overwrite.cli.url&#39; =&gt; &#39;http://161.189.27.8:8091&#39;,# 重启docker-compose restart</code></pre><h2 id="trouble-shooting"><a href="#trouble-shooting" class="headerlink" title="trouble shooting"></a>trouble shooting</h2><ul><li><p>安装docker-compose命令执行pip install docker-compose的时候报以下错误</p><pre><code>ERROR: Cannot uninstall &#39;requests&#39;. It is a distutils installed project and thus we cannot accurately determine which files belong to it which would lead to only a partial uninstall.</code></pre><p>解决版本，强制安装requests包</p><pre><code class="shell"> pip install --ignore-installed requests</code></pre><p>再重新执行</p><pre><code class="shell">pip install docker-compose</code></pre></li><li><p>docker-compose报错：No module named ssl_match_hostname</p><pre><code>File &quot;/usr/local/lib/python2.7/dist-packages/docker/transport/ssladapter.py&quot;, line 23, in &lt;module&gt;from backports.ssl_match_hostname import match_hostnameImportError: No module named ssl_match_hostname</code></pre><p>原因：</p><p><strong>/usr/local/lib/python2.7/distpackages/docker/transport/ssladapter.py **<br>在包路径下找不到 **backports包里的ssl_match_hostname</strong>模块</p><p>解决办法</p><pre><code class="shell">#进入backports模块路径cd /usr/lib/python2.7/site-packages#复制整个包到transport包路径下cp -r backports /usr/lib/python2.7/site-packages/docker/transport</code></pre></li></ul>]]></content>
+    
+    
+    <categories>
+      
+      <category>运维</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>docker</tag>
+      
+      <tag>nextcloud</tag>
+      
+      <tag>网盘</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>Harbor部署</title>
     <link href="/2020/01/09/Harbor%E9%83%A8%E7%BD%B2/"/>
     <url>/2020/01/09/Harbor%E9%83%A8%E7%BD%B2/</url>
@@ -64,7 +93,7 @@
   
   
   <entry>
-    <title>gitlab开启https</title>
+    <title>Gitlab开启Https</title>
     <link href="/2020/01/07/gitlab%E5%BC%80%E5%90%AFhttps/"/>
     <url>/2020/01/07/gitlab%E5%BC%80%E5%90%AFhttps/</url>
     
