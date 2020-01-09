@@ -13,6 +13,8 @@
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no">
   <meta http-equiv="x-ua-compatible" content="ie=edge">
   
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
   <meta name="description" content="111">
   <meta name="author" content="Chen Liang">
   <meta name="keywords" content="">
@@ -144,6 +146,12 @@
   <div class="row mb-4 mx-auto">
     
     
+      <div class="col-12 col-md-4 m-auto">
+        <a href="/2020/01/07/K8s%E7%9B%91%E6%8E%A7%E9%83%A8%E7%BD%B2%E6%96%B9%E6%A1%88/" target="_self">
+          <img src="https://www.ovh.com/blog/wp-content/uploads/2019/01/kubernetesblog02.jpg" srcset="/img/loading.gif" alt="K8s监控部署方案" class="img-fluid rounded z-depth-3 index-thumbnails">
+        </a>
+      </div>
+    
     <div class="col-12 col-md-8 m-auto">
       <a href="/2020/01/07/K8s%E7%9B%91%E6%8E%A7%E9%83%A8%E7%BD%B2%E6%96%B9%E6%A1%88/">
         <p class="h4 index-header">K8s监控部署方案</p>
@@ -168,7 +176,110 @@ kind: DaemonSet
 apiVersion: apps/v1beta2
 metadata: 
   labels:
-    app: no</div>
+    app: node-exporter
+  name: node-exporter
+  namespace: ns-monitor
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      containers:
+        - name: node-exporter
+          image: prom/node-exporter:v0.16.0
+          ports:
+            - containerPort: 9100
+              protocol: TCP
+              name:    http
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+
+---
+kind: Service
+apiVersion: v1
+metadata:
+  labels:
+    app: node-exporter
+  name: node-exporter-service
+  namespace: ns-monitor
+spec:
+  ports:
+    - name:    http
+      port: 9100
+      nodePort: 31672
+      protocol: TCP
+  type: NodePort
+  selector:
+    app: node-exporter
+kubectl apply -f node-exporter.yaml
+*检查是否执行成功(对应pod及svc) 👉🏻 **
+➜  ~ kubectl get pod -n ns-monitor
+NAME                          READY   STATUS    RESTARTS   AGE
+grafana-547699f75-lxljq       1/1     Running   0          3h37m
+node-exporter-75nmc           0/1     Pending   0          20h
+node-exporter-t29kx           1/1     Running   0          20h
+node-exporter-z6s7x           1/1     Running   0          20h
+prometheus-7d7654554d-f5fvf   1/1     Running   0          3h45m
+➜  ~ kubectl get svc -n ns-monitor
+NAME                    TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE
+grafana-service         NodePort   10.1.242.56    &lt;none&gt;        3000:31026/TCP   3h38m
+node-exporter-service   NodePort   10.1.130.7     &lt;none&gt;        9100:31672/TCP   20h
+prometheus-service      NodePort   10.1.133.130   &lt;none&gt;        9090:30753/TCP   3h45m
+
+3 部署Prometheus podprometheus.yaml 中包含rbac认证、ConfigMap等
+kubectl apply -f prometheus.yaml 
+检查是否执行成功(对应pod及svc)* 👉🏻 
+➜  ~ kubectl get pod -n ns-monitor
+NAME                          READY   STATUS    RESTARTS   AGE
+grafana-547699f75-lxljq       1/1     Running   0          3h37m
+node-exporter-75nmc           0/1     Pending   0          20h
+node-exporter-t29kx           1/1     Running   0          20h
+node-exporter-z6s7x           1/1     Running   0          20h
+prometheus-7d7654554d-f5fvf   1/1     Running   0          3h45m
+➜  ~ kubectl get svc -n ns-monitor
+NAME                    TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE
+grafana-service         NodePort   10.1.242.56    &lt;none&gt;        3000:31026/TCP   3h38m
+node-exporter-service   NodePort   10.1.130.7     &lt;none&gt;        9100:31672/TCP   20h
+prometheus-service      NodePort   10.1.133.130   &lt;none&gt;        9090:30753/TCP   3h45m
+
+4 在k8s中部署grafanakubectl apply -f grafana.yaml
+检查是否执行成功(对应pod及svc) 👉🏻 
+➜  ~ kubectl get pod -n ns-monitor
+NAME                          READY   STATUS    RESTARTS   AGE
+grafana-547699f75-lxljq       1/1     Running   0          3h37m
+node-exporter-75nmc           0/1     Pending   0          20h
+node-exporter-t29kx           1/1     Running   0          20h
+node-exporter-z6s7x           1/1     Running   0          20h
+prometheus-7d7654554d-f5fvf   1/1     Running   0          3h45m
+➜  ~ kubectl get svc -n ns-monitor
+NAME                    TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE
+grafana-service         NodePort   10.1.242.56    &lt;none&gt;        3000:31026/TCP   3h38m
+node-exporter-service   NodePort   10.1.130.7     &lt;none&gt;        9100:31672/TCP   20h
+prometheus-service      NodePort   10.1.133.130   &lt;none&gt;        9090:30753/TCP   3h45m
+5 配置grafana数据源把prometheus配置成数据源 ：http://prometheus-service.ns-monitor:9090
+
+6 倒入dashboard把 kubernetes的Dashboard的模板导入进来，直接把JSON格式内容复制进来。
+
+效果图
+Ref
+使用Prometheus监控kubernetes集群
+
+k8s安装Prometheus+Grafana
+
+github-kubernetes-promethues
+
+github-giantswarm-promethues
+
+
+</div>
         </div>
       </a>
 
@@ -201,6 +312,12 @@ metadata:
   <div class="row mb-4 mx-auto">
     
     
+      <div class="col-12 col-md-4 m-auto">
+        <a href="/2020/01/07/gitlab%E5%BC%80%E5%90%AFhttps/" target="_self">
+          <img src="https://christianliebel.com/wp-content/uploads/2016/05/twitter-header-825x501.png" srcset="/img/loading.gif" alt="gitlab开启https" class="img-fluid rounded z-depth-3 index-thumbnails">
+        </a>
+      </div>
+    
     <div class="col-12 col-md-8 m-auto">
       <a href="/2020/01/07/gitlab%E5%BC%80%E5%90%AFhttps/">
         <p class="h4 index-header">gitlab开启https</p>
@@ -217,7 +334,32 @@ openssl genrsa -des3 -out /etc/gitlab/ssl/server.key 2048
 # step 2 生成 Certificate Request
 openssl req -new -key /etc/gitlab/ssl/gitlab.domain.com.key -out /etc/gitlab/ssl/server.csr
 
- Enter Country Name CN Enter State or Province Full Name HB Enter City Name WuHan Enter Organization Name Enter Company Name EV-IV Enter Organizational Unit Name Enter server hostname i.e. URL git</div>
+ Enter Country Name CN Enter State or Province Full Name HB Enter City Name WuHan Enter Organization Name Enter Company Name EV-IV Enter Organizational Unit Name Enter server hostname i.e. URL gitlab.domain.com Enter Admin Email Address Skip Challenge Password (Hit Enter) Skip Optional Company Name (Hit Enter)
+
+#在加载SSL支持的Nginx并使用上述私钥时要除去刚才设置的口令： 
+#step3 备份csr文件及去除命令，直接覆盖了server.key了
+openssl rsa -inserver.key.org -out server.key
+#step 4最后标记证书使用上述私钥和CSR：（把csr标记后转换成了crt nginx要用key和crt文件）
+openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt
+修改gitlab配置vim /etc/gitlab/gitlab.rb
+
+external_url &#39;https://161.189.27.8:8090/&#39;
+
+nginx[&#39;redirect_http_to_https&#39;]= true
+nginx[&#39;ssl_client_certificate&#39;] = &quot;/etc/gitlab/ssl/server.crt&quot;
+nginx[&#39;ssl_certificate&#39;]= &quot;/etc/gitlab/ssl/server.crt&quot;
+nginx[&#39;ssl_certificate_key&#39;]= &quot;/etc/gitlab/ssl/server.key&quot;
+重启gitlabgitlab-ctl reconfigure
+gitlab-ctl restart
+最后通过访问https地址进行访问测试
+相关问题Q1 由于ssl证书为自签证书 git clone报错
+git clone https://161.189.27.8:8090/dqdev/pythogoras.git
+Cloning into &#39;pythogoras&#39;...
+fatal: unable to access &#39;https://161.189.27.8:8090/dqdev/pythogoras.git/&#39;: SSL certificate problem: self signed certificate
+关闭git ssl验证
+git config --global http.sslVerify false 关闭
+git config --global http.sslVerify true  开启
+</div>
         </div>
       </a>
 
@@ -242,66 +384,6 @@ openssl req -new -key /etc/gitlab/ssl/gitlab.domain.com.key -out /etc/gitlab/ssl
           
             <a href="/tags/%E8%AF%81%E4%B9%A6">证书</a>&nbsp;
           
-        
-      </div>
-    </div>
-  </div>
-
-  <div class="row mb-4 mx-auto">
-    
-    
-    <div class="col-12 col-md-8 m-auto">
-      <a href="/2020/01/07/My-Gallery/">
-        <p class="h4 index-header">My Gallery</p>
-        
-        
-          
-        
-        <div class="index-excerpt" >
-          <div class="index-text mb-1">hellohe
-</div>
-        </div>
-      </a>
-
-      <div>
-        
-          <i class="iconfont icon-riqi2"></i>&nbsp;2020-01-07&nbsp;&nbsp;
-        
-        
-        
-      </div>
-    </div>
-  </div>
-
-  <div class="row mb-4 mx-auto">
-    
-    
-    <div class="col-12 col-md-8 m-auto">
-      <a href="/2020/01/07/hello-world/">
-        <p class="h4 index-header">Hello World</p>
-        
-        
-          
-        
-        <div class="index-excerpt" >
-          <div class="index-text mb-1">Welcome to Hexo! This is your very first post. Check documentation for more info. If you get any problems when using Hexo, you can find the answer in troubleshooting or you can ask me on GitHub.
-Quick StartCreate a new post$ hexo new &quot;My New Post&quot;
-More info: Writing
-Run server$ hexo server
-More info: Server
-Generate static files$ hexo generate
-More info: Generating
-Deploy to remote sites$ hexo deploy
-More info: Deployment
-</div>
-        </div>
-      </a>
-
-      <div>
-        
-          <i class="iconfont icon-riqi2"></i>&nbsp;2020-01-07&nbsp;&nbsp;
-        
-        
         
       </div>
     </div>
