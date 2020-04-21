@@ -133,7 +133,7 @@
                   
                   &nbsp;<i class="far fa-chart-bar"></i>
                   <span class="post-count">
-                    4.8k 字
+                    4.9k 字
                   </span>&nbsp;
                 
 
@@ -201,6 +201,8 @@
 <li>Kubernetes v1.15（<code>单节点环境亦可</code>）</li>
 <li>Rook v1.0.2</li>
 <li>CentOS 7 </li>
+<li>presto 332（prestosql版本）</li>
+<li>jdk-8</li>
 </ul>
 <h2 id="三、部署rook及ceph"><a href="#三、部署rook及ceph" class="headerlink" title="三、部署rook及ceph"></a>三、部署rook及ceph</h2><p>rook的部署可以使用kubernetes的包管理工具<a href="https://helm.sh/" target="_blank" rel="noopener">helm</a>安装，由于rook及kubernetes版本众多以及涉及到相关源等问题，本文没有采用helm安装方式部署rook</p>
 <pre><code class="shell">$ git clone https://github.com/rook/rook.git 
@@ -289,26 +291,48 @@ debug 2020-02-25 23:54:04.280 7ffb08d89700  0 log_channel(audit) log [DBG] : fro
 debug 2020-02-25 23:58:11.177 7f8606e0e700  0 log_channel(audit) log [DBG] : from=&#39;client.4373 -&#39; entity=&#39;client.admin&#39; cmd=[{&quot;username&quot;: &quot;admin&quot;, &quot;prefix&quot;: &quot;dashboard set-login-credentials&quot;, &quot;password&quot;: &quot;Wo9nf64nDs&quot;, &quot;target&quot;: [&quot;mgr&quot;, &quot;&quot;], &quot;format&quot;: &quot;json&quot;}]: dispatch</code></pre>
 <p>找到username和password字段，我这里是admin，Wo9nf64nDs<br>打开浏览器输入任意一个Node的IP+nodeport端口，这里使用master节点 ip访问：<a href="https://localhost:30102/#/dashboard" target="_blank" rel="noopener">https://localhost:30102/#/dashboard</a></p>
 <h2 id="四、部署presto"><a href="#四、部署presto" class="headerlink" title="四、部署presto"></a>四、部署presto</h2><h3 id="4-1-部署步骤"><a href="#4-1-部署步骤" class="headerlink" title="4.1 部署步骤"></a>4.1 部署步骤</h3><ul>
-<li><p>构建镜像<code>Dockerfile</code>，hdfs-site及core-site配置文件可以构建到镜像中，方便后续配置hive connector</p>
+<li><p>构建镜像presto-server端机presto-cli端的镜像，hdfs-site及core-site配置文件可以构建到镜像中，方便后续配置hive connector。通过脚本<code>build_image.sh</code>构建</p>
+<blockquote>
+<p><code>presto-serve端Dockerfile</code></p>
+</blockquote>
 <pre><code class="dockerfile">FROM centos:centos7.5.1804
-MAINTAINER **@mail.com
 
 RUN mkdir -p /etc/hadoop/conf
 
-ADD jdk-8u101-linux-x64.tar.gz /opt
-ADD presto-server-0.208.tar.gz /opt
+ADD jdk-11.0.6_linux-x64_bin.tar.gz /opt
+ADD presto-server-332.tar.gz /opt
 ADD core-site.xml /etc/hadoop/conf
 ADD hdfs-site.xml /etc/hadoop/conf
+ADD hudi-presto-bundle-0.5.2-incubating-sources.jar /opt/presto-server-332/plugin/hive-hadoop2
+ADD hudi-presto-bundle-0.5.2-incubating.jar /opt/presto-server-332/plugin/hive-hadoop2
+ADD original-hudi-presto-bundle-0.5.2-incubating-sources.jar /opt/presto-server-332/plugin/hive-hadoop2
+ADD original-hudi-presto-bundle-0.5.2-incubating.jar /opt/presto-server-332/plugin/hive-hadoop2
 
-ENV PRESTO_HOME /opt/presto-server-0.208
-ENV JAVA_HOME /opt/jdk1.8.0_101
+ENV PRESTO_HOME /opt/presto-server-332
+ENV JAVA_HOME /opt/jdk-11.0.6
 ENV PATH $JAVA_HOME/bin:$PATH</code></pre>
+<blockquote>
+<p><code>presto-client端的Dockerfile</code></p>
+</blockquote>
+<pre><code class="dockerfile">FROM openjdk:8-slim
+
+ADD presto-cli-332-executable.jar /opt
+
+RUN  mv /opt/presto-cli-332-executable.jar /opt/presto-cli  &amp;&amp; chmod +x /opt/presto-cli</code></pre>
 </li>
+</ul>
+<ul>
 <li><p>配置server端相关配置 <code>presto-config-cm.yaml</code></p>
+<p>server端的配置<strong>注意</strong>两个地方</p>
+<ul>
+<li>每个presto节点的node.id需要不一样</li>
+<li>jvm参数需要加上<code>-DHADOOP_USER_NAME=hdfs</code>及<code>-Dpresto-temporarily-allow-java8=true</code>确保presto以HDFS用户访问hdfs文件及解决presto安装jdk8报错的问题</li>
+</ul>
 <pre><code class="yaml">apiVersion: v1
 kind: ConfigMap
 metadata:
   name: presto-config-cm
+  namespace: presto
   labels:
     app: presto-coordinator
 data:
@@ -324,7 +348,18 @@ data:
     cat ./config.properties &gt; $PRESTO_HOME/etc/config.properties
     cat ./log.properties &gt; $PRESTO_HOME/etc/log.properties
 
+    echo &quot;&quot; &gt;&gt; $PRESTO_HOME/etc/node.properties
+    echo &quot;node.id=$HOSTNAME&quot; &gt;&gt; $PRESTO_HOME/etc/node.properties
+
     sed -i &#39;s/${COORDINATOR_NODE}/&#39;$COORDINATOR_NODE&#39;/g&#39; $PRESTO_HOME/etc/config.properties
+
+    if ${COORDINATOR_NODE}; 
+    then
+      echo coordinator
+    else 
+      sed -i &#39;7d&#39; $PRESTO_HOME/etc/config.properties
+      echo worker
+    fi
 
     for cfg in ../catalog/*; do
       cat $cfg &gt; $PRESTO_HOME/etc/catalog/${cfg##*/}
@@ -337,12 +372,18 @@ data:
   jvm.config: |-
     -server
     -Xmx16G
+    -XX:-UseBiasedLocking
     -XX:+UseG1GC
     -XX:G1HeapRegionSize=32M
-    -XX:+UseGCOverheadLimit
     -XX:+ExplicitGCInvokesConcurrent
-    -XX:+HeapDumpOnOutOfMemoryError
     -XX:+ExitOnOutOfMemoryError
+    -XX:+UseGCOverheadLimit
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:ReservedCodeCacheSize=512M
+    -Djdk.attach.allowAttachSelf=true
+    -Djdk.nio.maxCachedBufferSize=2000000
+    -Dpresto-temporarily-allow-java8=true
+    -DHADOOP_USER_NAME=hdfs
   config.properties: |-
     coordinator=${COORDINATOR_NODE}
     node-scheduler.include-coordinator=true
@@ -351,15 +392,16 @@ data:
     query.max-memory-per-node=1GB
     query.max-total-memory-per-node=2GB
     discovery-server.enabled=true
-    discovery.uri=http://presto-coordinator-service:8080
+    discovery.uri=http://presto:8080
   log.properties: |-
-    com.facebook.presto=INFO</code></pre>
+    io.prestosql=DEBUG</code></pre>
 </li>
 <li><p>catalog相关配置<code>presto-catalog-config-cm.yaml</code></p>
 <pre><code class="yaml">apiVersion: v1
 kind: ConfigMap
 metadata:
   name: presto-catalog-config-cm
+  namespace: presto
   labels:
     app: presto-coordinator
 data:
@@ -369,71 +411,20 @@ data:
     hive.config.resources=/etc/hadoop/conf/core-site.xml,/etc/hadoop/conf/hdfs-site.xml
   mysql.properties: |-
     connector.name=mysql
-    connection-url=jdbc:mysql://ip:3306
+    connection-url=jdbc:mysql://ip:30306
     connection-user=root
-    connection-password=123456</code></pre>
+    connection-password=Qloud@dev?123
+</code></pre>
 </li>
-<li><p>worker及coordinator的部署<code>deployment.yaml</code></p>
-<pre><code class="yaml">apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: presto-coordinator
-spec:
-  replicas: 1
-  revisionHistoryLimit: 10
-  selector:
-    matchLabels:
-      app: presto-coordinator
-  template:
-    metadata:
-      labels:
-        app: presto-coordinator
-    spec:
-      containers:
-        - name: presto-coordinator
-          image: chenlianguu/presto-server:dm-0.208
-          command: [&quot;bash&quot;, &quot;-c&quot;, &quot;sh /root/bootstrap/bootstrap.sh&quot;]
-          ports:
-            - name: http-coord
-              containerPort: 8080
-              protocol: TCP
-          env:
-            - name: COORDINATOR_NODE
-              value: &quot;true&quot;
-          volumeMounts:
-            - name: presto-config-volume
-              mountPath: /root/bootstrap
-            - name: presto-catalog-config-volume
-              mountPath: /root/catalog
-            - name: presto-data-volume
-              mountPath: /var/presto/data
-          readinessProbe:
-            initialDelaySeconds: 10
-            periodSeconds: 5
-            httpGet:
-              path: /v1/cluster
-              port: http-coord
-      volumes:
-        - name: presto-config-volume
-          configMap:
-            name: presto-config-cm
-        - name: presto-catalog-config-volume
-          configMap:
-            name: presto-catalog-config-cm
-        - name: presto-data-volume
-          emptyDir: {}
----
+<li><p>presto-svc、worker、coordinator、presto-cli的部署<code>deployment.yaml</code></p>
+<pre><code class="yaml">apiVersion: v1
 kind: Service
-apiVersion: v1
 metadata:
-  labels:
-    app: presto-coordinator
-  name: presto-coordinator-service
+  name: presto
+  namespace: presto
 spec:
   ports:
-    - port: 8080
-      targetPort: http-coord
-      name: http-coord
+  - port: 8080
   selector:
     app: presto-coordinator
   type: NodePort
@@ -441,54 +432,99 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: presto-worker
+    name: presto-coordinator
+    namespace: presto
 spec:
-  replicas: 2
-  revisionHistoryLimit: 10
-  selector:
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
     matchLabels:
-      app: presto-worker
-  template:
+        app: presto-coordinator
+    template:
     metadata:
-      labels:
-        app: presto-worker
+        labels:
+        app: presto-coordinator
     spec:
-      initContainers:
-        - name: wait-coordinator
-          image:  chenlianguu/presto-server:dm-0.208
-          command: [&quot;bash&quot;, &quot;-c&quot;, &quot;until curl -sf http://presto-coordinator-service:8080/ui/; do echo &#39;waiting for coordinator started...&#39;; sleep 2; done;&quot;]
-      containers:
-        - name: presto-worker
-          image: chenlianguu/presto-server:dm-0.208
-          command: [&quot;bash&quot;, &quot;-c&quot;, &quot;sh /root/bootstrap/bootstrap.sh&quot;]
-          ports:
-            - name: http-coord
-              containerPort: 8080
-              protocol: TCP
-          env:
+        containers:
+        - name: presto-coordinator
+            image: reg.chebai.org/presto/presto-server:332
+            command: [&quot;bash&quot;, &quot;-c&quot;, &quot;sh /root/bootstrap/bootstrap.sh&quot;]
+            ports:
+            - containerPort: 8080
+            env:
             - name: COORDINATOR_NODE
-              value: &quot;false&quot;
-          volumeMounts:
+                value: &quot;true&quot;
+            volumeMounts:
             - name: presto-config-volume
-              mountPath: /root/bootstrap
+                mountPath: /root/bootstrap
             - name: presto-catalog-config-volume
-              mountPath: /root/catalog
+                mountPath: /root/catalog
             - name: presto-data-volume
-              mountPath: /var/presto/data
-          readinessProbe:
-            initialDelaySeconds: 10
-            periodSeconds: 5
-            exec:
-              command: [&quot;bash&quot;, &quot;-c&quot;, &quot;curl -s http://presto-coordinator-service:8080/v1/node | tr &#39;,&#39; &#39;\n&#39; | grep -s $(hostname -i)&quot;]
-      volumes:
+                mountPath: /var/presto/data
+        volumes:
         - name: presto-config-volume
-          configMap:
+            configMap:
             name: presto-config-cm
         - name: presto-catalog-config-volume
-          configMap:
+            configMap:
             name: presto-catalog-config-cm
         - name: presto-data-volume
-          emptyDir: {}</code></pre>
+            emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: presto-worker
+    namespace: presto
+spec:
+    replicas: 2
+    revisionHistoryLimit: 10
+    selector:
+    matchLabels:
+        app: presto-worker
+    template:
+    metadata:
+        labels:
+        app: presto-worker
+    spec:
+        containers:
+        - name: presto-worker
+            image: reg.chebai.org/presto/presto-server:332
+            command: [&quot;bash&quot;, &quot;-c&quot;, &quot;sh /root/bootstrap/bootstrap.sh&quot;]
+            ports:
+            - containerPort: 8080
+            env:
+            - name: COORDINATOR_NODE
+                value: &quot;false&quot;
+            volumeMounts:
+            - name: presto-config-volume
+                mountPath: /root/bootstrap
+            - name: presto-catalog-config-volume
+                mountPath: /root/catalog
+            - name: presto-data-volume
+                mountPath: /var/presto/data
+        volumes:
+        - name: presto-config-volume
+            configMap:
+            name: presto-config-cm
+        - name: presto-catalog-config-volume
+            configMap:
+            name: presto-catalog-config-cm
+        - name: presto-data-volume
+            emptyDir: {}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+    name: presto-cli
+    namespace: presto
+spec:
+    containers:
+    - name: presto-cli
+    image: reg.chebai.org/presto/presto-cli:332
+    command: [&quot;tail&quot;, &quot;-f&quot;, &quot;/dev/null&quot;]
+    imagePullPolicy: Always
+    restartPolicy: Always</code></pre>
 </li>
 <li><p>启动presto</p>
 <pre><code class="shell">kubectl create -f presto-config-cm.yaml
@@ -496,17 +532,12 @@ kubectl create -f presto-catalog-config-cm.yaml
 kubectl create -f deployment.yaml </code></pre>
 </li>
 <li><p>使用presto，找出外部地址</p>
-<pre><code class="shell">[root@node-1 ~]# kubectl get svc presto-coordinator-service
+<pre><code class="shell">[root@node-1 ~]# kubectl get svc -n presto
 NAME     TYPE       CLUSTER-IP    EXTERNAL-IP   PORT(S)          AGE
 presto   NodePort   10.1.27.143   &lt;none&gt;        8080:32151/TCP   27h</code></pre>
 </li>
-<li><p>测试Presto客户端连接</p>
-<pre><code class="shell">wget https://repo1.maven.org/maven2/com/facebook/presto/presto-cli/0.208/presto-cli-0.208-executable.jar
-
-chmod +x presto-cli-0.208-executable.jar 
-
-./presto-cli-0.208-executable.jar --server 192.168.112.240:30418 --catalog hive --schema default
-presto:default&gt;</code></pre>
+<li><p>使用presto-cli客户端连接不同connector</p>
+<pre><code class="shell">kubectl exec -it presto-cli -n presto /opt/presto-cli -- --server presto:8080 --catalog hive --schema default</code></pre>
 </li>
 </ul>
 <h3 id="4-2-挂载ceph卷到presto"><a href="#4-2-挂载ceph卷到presto" class="headerlink" title="4.2 挂载ceph卷到presto"></a>4.2 挂载ceph卷到presto</h3><blockquote>
@@ -638,7 +669,7 @@ data:
   # hive相关配置
   hive.properties: |-
     connector.name=hive-hadoop2
-    hive.metastore.uri=thrift://10.8.8.252:9083
+    hive.metastore.uri=thrift://hive-metastore-ip:9083
   # mysql相关配置
   mysql.properties: |-
     connector.name=mysql
@@ -649,124 +680,7 @@ data:
     connector.name=cassandra
     cassandra.contact-points=host1,host2
 EOF</code></pre>
-<p>修改<code>coordinator-deployment.yaml</code> <code>worker-deployment.yaml</code>两个yaml文件，把configmap挂载到对应的卷上去，因为使用的presto镜像为<a href="https://github.com/johandry/presto-docker" target="_blank" rel="noopener">gihub第三方镜像</a>，通过查询dockerfile得知，该镜像presto的catalog配置目录在<code>/usr/lib/presto/etc/catalog/</code>,将configmap挂载至该目录即可。</p>
-<ul>
-<li><p><strong>coordinator-deployment.yaml</strong></p>
-<pre><code class="yaml">kind: Deployment
-apiVersion: apps/v1beta1
-metadata:
-  name: coordinator
-  labels:
-    presto: coordinator
-spec:
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        presto: coordinator
-    spec:
-      containers:
-      - env:
-        - name: HTTP_SERVER_PORT
-          value: &quot;8080&quot;
-        - name: PRESTO_JVM_HEAP_SIZE
-          value: &quot;8&quot;
-        - name: PRESTO_MAX_MEMORY
-          value: &quot;10&quot;
-        - name: PRESTO_MAX_MEMORY_PER_NODE
-          value: &quot;1&quot;
-        image: johandry/presto
-        livenessProbe:
-          exec:
-            command:
-            - /etc/init.d/presto status | grep -q &#39;Running as&#39;
-          failureThreshold: 3
-          periodSeconds: 300
-          timeoutSeconds: 10
-        name: presto-coordinator
-        ports:
-        - containerPort: 8080
-        volumeMounts:
-            - name: presto-data-volume
-              mountPath: /var/presto/data
-            - name: presto-catalog-config-volume
-              mountPath: /usr/lib/presto/etc/catalog
-      restartPolicy: Always
-      volumes:
-        - name: presto-data-volume
-          persistentVolumeClaim:
-            claimName: presto-data-claim
-        - name: presto-catalog-config-volume
-          configMap:
-            name: presto-catalog-config-cm</code></pre>
-</li>
-<li><p>worker-deployment.yaml</p>
-<pre><code class="yaml">apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: presto-data-claim-presto
-spec:
-  storageClassName: rook-ceph-block
-  accessModes:
-  - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
----
-
-apiVersion: apps/v1beta1
-kind: Deployment
-metadata:
-  labels:
-    presto: worker
-  name: worker
-spec:
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        presto: worker
-    spec:
-      containers:
-      - env:
-        - name: HTTP_SERVER_PORT
-          value: &quot;8080&quot;
-        - name: PRESTO_JVM_HEAP_SIZE
-          value: &quot;8&quot;
-        - name: PRESTO_MAX_MEMORY
-          value: &quot;10&quot;
-        - name: PRESTO_MAX_MEMORY_PER_NODE
-          value: &quot;1&quot;
-        - name : COORDINATOR
-          value: &quot;presto&quot;
-        image: johandry/presto
-        livenessProbe:
-          exec:
-            command:
-            - /etc/init.d/presto status | grep -q &#39;Running as&#39;
-          failureThreshold: 3
-          periodSeconds: 300
-          timeoutSeconds: 10
-        name: worker
-        ports:
-        - containerPort: 8080
-        volumeMounts:
-            - name: presto-data-volume
-              mountPath: /var/presto/data
-            - name: presto-catalog-config-volume
-              mountPath: /usr/lib/presto/etc/catalog
-      restartPolicy: Always
-      volumes:
-         - name: presto-data-volume
-           persistentVolumeClaim:
-            claimName: presto-data-claim-presto
-         - name: presto-catalog-config-volume
-           configMap:
-            name: presto-catalog-config-cm</code></pre>
-</li>
-</ul>
-<hr>
-<p>配置好之后需要生效，重新apply <code>presto-catalog-config-cm.yaml</code> <code>coordinator-deployment.yaml</code> <code>worker-deployment.yaml</code> 3个文件，并<strong>删除coordinator的pod</strong>，删除之后会重新生成新的pod，新的pod会载入新的connector</p>
+<p>配置好之后需要生效，重新apply <code>presto-catalog-config-cm.yaml</code> 并<strong>删除coordinator及word相关的pod</strong>，删除之后会重新生成新的pod，新的pod会载入新的connector配置</p>
 <pre><code class="shell">kubectl apply -f presto-catalog-config-cm.yaml
 kubectl apply -f coordinator-deployment.yaml
 kubectl apply -f worker-deployment.yaml
@@ -796,7 +710,7 @@ docker-compose exec hive-server bash
   &gt; CREATE TABLE pokes (foo INT, bar STRING);
   &gt; LOAD DATA LOCAL INPATH &#39;/opt/hive/examples/files/kv1.txt&#39; OVERWRITE INTO TABLE pokes;</code></pre>
 <p>hive-metastore的连接端口为9083，确认该端口处于监听状态 <code>presto连接hive进行测试</code></p>
-<pre><code class="shell">./presto-cli-0.208-executable.jar --server localhost:30025 --catalog hive --schema default
+<pre><code class="shell">kubectl exec -it presto-cli -n presto /opt/presto-cli -- --server presto:8080 --catalog hive --schema default
 presto:default&gt; show schemas;
        Schema
 --------------------
@@ -848,7 +762,7 @@ mysql&gt; select * from user;
 +----+----------+-----------+
 3 rows in set (0.00 sec)</code></pre>
 <p>mysql的连接端口为3306，确认该端口处于监听状态 <code>presto连接mysql进行测试</code></p>
-<pre><code class="shell">./presto-cli-0.208-executable.jar --server localhost:30025 --catalog mysql --schema test
+<pre><code class="shell">kubectl exec -it presto-cli -n presto /opt/presto-cli -- --server presto:8080 --catalog mysql --schema test
 presto:test&gt; show tables;
  Table
 -------
@@ -895,7 +809,7 @@ select * from users;
 <img src="https://i.loli.net/2020/04/13/FmflGnxRWAsLIgB.jpg" srcset="/img/loading.gif" style="zoom:50%;">
 
 <p>查询数据</p>
-<pre><code class="shell">[root@ecs-wuhan ~]# ./presto-cli-0.208-executable.jar --server localhost:30025 --catalog cassandra --schema pimin_net
+<pre><code class="shell">kubectl exec -it presto-cli -n presto /opt/presto-cli -- --server presto:8080 --catalog cassandra --schema default
 presto:pimin_net&gt; show tables;
  Table
 -------
@@ -919,12 +833,12 @@ Splits: 273 total, 273 done (100.00%)
 
 presto:pimin_net&gt;</code></pre>
 <p>可以查询到cassandra中的数据</p>
-<h3 id="4-5-弹性伸缩"><a href="#4-5-弹性伸缩" class="headerlink" title="4.5 弹性伸缩"></a>4.5 弹性伸缩</h3><pre><code class="shell">kubectl get deployment
+<h3 id="4-5-弹性伸缩"><a href="#4-5-弹性伸缩" class="headerlink" title="4.5 弹性伸缩"></a>4.5 弹性伸缩</h3><pre><code class="shell">kubectl get deployment -n presto
 NAME                  DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
 presto-coordinator    1         1         1            1           21m
 presto-worker         2         2         2            2           21m
 
-kubectl scale deployment presto-worker --replicas=3
+kubectl scale deployment presto-worker --replicas=3 -n presto
 deployment &quot;presto-worker&quot; scaled
 
 kubectl get deployment
@@ -946,16 +860,25 @@ presto-worker         3         3         3            3           23m</code></p
 systemctl daemon-reload
 systemctl restart docker</code></pre>
 </li>
+<li><p>presto查询hive数据出现io.prestosql.spi.PrestoException: Could not obtain block: BP-1548201263错误，<code>show tables</code> <code>desc table</code>正常显示，通过在presto的pod容器内部使用hdfs 命令ls可以查看目录，但是cat hdfs上面的文件报相同的错误，说明无法联通datanode默认的50010端口，使用telnet命令可查看远程服务器是否开放次端口，通过开放端口或者解决防火墙方式解决，能够telnet成功该端口即可解决该问题 参考<a href="https://groups.google.com/forum/#!topic/presto-users/4yWpzR-zrds" target="_blank" rel="noopener">presto hive connector error reading from HDFS</a></p>
+</li>
 </ul>
-<h2 id="六、Ref"><a href="#六、Ref" class="headerlink" title="六、Ref"></a>六、Ref</h2><ul>
+<h2 id="六、注意事项"><a href="#六、注意事项" class="headerlink" title="六、注意事项"></a>六、注意事项</h2><ul>
+<li><strong>当更新configmap的时候，由于不支持热更新，需要销毁掉presto的work及coordinatoe相关pod，销毁之后新启动的pod会载入最新的相关配置</strong></li>
+<li>prestosql-332版本要求jdk11，但hadoop对jdk11不兼容，需要使用jdk8，并在presto的jvm参数上面加上-Dpresto-temporarily-allow-java8=true</li>
+</ul>
+<h2 id="七、Ref"><a href="#七、Ref" class="headerlink" title="七、Ref"></a>七、Ref</h2><ul>
 <li><a href="https://info.crunchydata.com/blog/crunchy-postgresql-operator-with-rook-ceph-storage" target="_blank" rel="noopener">Using the PostgreSQL Operator with Rook Ceph Storage</a></li>
 <li><a href="https://github.com/dharmeshkakadia/presto-kubernetes" target="_blank" rel="noopener">presto-kubernetes</a></li>
+<li><a href="https://github.com/big-data-europe/docker-hive" target="_blank" rel="noopener">docker-hive</a></li>
+<li><a href="https://github.com/joshuarobinson/presto-on-k8s" target="_blank" rel="noopener">presto-on-k8s</a></li>
 <li><a href="https://blog.csdn.net/networken/article/details/85772418" target="_blank" rel="noopener">kubernetes部署rook+ceph存储系统</a></li>
 <li><a href="https://blog.csdn.net/ygqygq2/article/details/103014350" target="_blank" rel="noopener">kubernetes上部署rook-ceph存储系统</a></li>
 <li><a href="https://blog.csdn.net/chenleiking/article/details/82493798" target="_blank" rel="noopener">在Kubernetes上部署Presto</a></li>
 <li><a href="https://docker_practice.gitee.io/install/mirror.html" target="_blank" rel="noopener">Docker镜像加速器</a></li>
 <li><a href="https://www.jianshu.com/p/ba730747cc8c" target="_blank" rel="noopener">Presto连接MySQL</a></li>
-<li>[docker-hive](</li>
+<li><a href="https://medium.com/@uprush/presto-with-kubernetes-and-s3-deployment-4e262849244a" target="_blank" rel="noopener">Presto with Kubernetes and S3 — Deployment</a></li>
+<li>[Presto-Powered S3 Data Warehouse on Kubernetes](</li>
 </ul>
 
             <hr>
